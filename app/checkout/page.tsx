@@ -1,60 +1,144 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import Navigation from "@/components/navigation"
 import Footer from "@/components/footer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CreditCard, Smartphone, Landmark } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+
+interface CartItem {
+  id: string
+  product_id: string
+  quantity: number
+  product?: { name: string; price: number }
+}
 
 export default function CheckoutPage() {
   const [activePaymentMethod, setActivePaymentMethod] = useState("upi")
-  const [orderPlaced, setOrderPlaced] = useState(false)
+  const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [customerEmail, setCustomerEmail] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [shippingAddress, setShippingAddress] = useState("")
+  const [city, setCity] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
-  const cartTotal = 648
-  const shippingAddress = "123 Main St, Mumbai, MH 400001"
+  useEffect(() => {
+    const fetchCart = async () => {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
 
-  const handlePlaceOrder = () => {
-    // This will integrate with Cashfree Payment Gateway
-    // For now, showing success mock
-    setOrderPlaced(true)
-  }
+        if (!user) {
+          router.push("/auth/login")
+          return
+        }
 
-  if (orderPlaced) {
-    return (
-      <main className="bg-background">
-        <Navigation />
-        <section className="py-20">
-          <div className="max-w-2xl mx-auto px-4 text-center">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">✓</span>
-              </div>
-              <h1 className="text-4xl font-bold mb-4">Order Placed Successfully!</h1>
-              <p className="text-muted-foreground mb-2">Order #PH20241227001</p>
-              <p className="text-muted-foreground">You'll receive a confirmation email shortly.</p>
-            </div>
+        const { data } = await supabase
+          .from("cart_items")
+          .select("*, product:products(name, price)")
+          .eq("user_id", user.id)
 
-            <div className="bg-primary/5 p-6 rounded-lg mb-8 text-left">
-              <h3 className="font-bold mb-4">Next Steps:</h3>
-              <ol className="space-y-3 text-sm">
-                <li>1. Confirmation email with tracking details</li>
-                <li>2. Your order will be processed within 24 hours</li>
-                <li>3. You'll receive SMS updates about your shipment</li>
-                <li>4. Track your order anytime in your account</li>
-              </ol>
-            </div>
+        setCartItems(data || [])
+        setCustomerEmail(user.email || "")
+      } catch (err) {
+        console.error("Error fetching cart:", err)
+      }
+    }
 
-            <div className="flex gap-4 justify-center">
-              <Button variant="outline">View Order</Button>
-              <Button>Continue Shopping</Button>
-            </div>
-          </div>
-        </section>
-        <Footer />
-      </main>
-    )
+    fetchCart()
+  }, [router])
+
+  const cartTotal = cartItems.reduce((sum, item) => sum + (item.product?.price || 0) * item.quantity, 0)
+  const tax = Math.round(cartTotal * 0.05)
+  const shipping = cartTotal >= 499 ? 0 : 50
+  const totalAmount = cartTotal + tax + shipping
+
+  const handlePlaceOrder = async () => {
+    setError(null)
+    setLoading(true)
+
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) throw new Error("User not found")
+
+      // Create order in database
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .insert({
+          user_id: user.id,
+          order_number: `PH${Date.now()}`,
+          total_amount: totalAmount,
+          status: "pending",
+          shipping_address: shippingAddress,
+          shipping_city: city,
+        })
+        .select()
+        .single()
+
+      if (orderError) throw orderError
+
+      // Create order items
+      const orderItems = cartItems.map((item) => ({
+        order_id: order.id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        price_at_purchase: item.product?.price || 0,
+      }))
+
+      const { error: itemsError } = await supabase.from("order_items").insert(orderItems)
+      if (itemsError) throw itemsError
+
+      // Initiate Cashfree payment
+      const paymentResponse = await fetch("/api/payments/cashfree/initiate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.id,
+          orderAmount: totalAmount,
+          customerEmail,
+          customerPhone,
+          returnUrl: `${window.location.origin}/order-confirmation?orderId=${order.id}`,
+        }),
+      })
+
+      const paymentData = await paymentResponse.json()
+
+      if (!paymentResponse.ok) throw new Error(paymentData.error || "Payment initiation failed")
+
+      // Store payment transaction
+      await supabase.from("payment_transactions").insert({
+        order_id: order.id,
+        user_id: user.id,
+        gateway: "cashfree",
+        transaction_id: paymentData.order_id,
+        amount: totalAmount,
+        status: "initiated",
+        customer_email: customerEmail,
+        customer_phone: customerPhone,
+      })
+
+      // Redirect to Cashfree payment link
+      if (paymentData.payments?.link_url) {
+        window.location.href = paymentData.payments.link_url
+      } else {
+        throw new Error("No payment link received")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Payment failed")
+      setLoading(false)
+    }
   }
 
   return (
@@ -68,11 +152,43 @@ export default function CheckoutPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left: Checkout Form */}
             <div className="lg:col-span-2 space-y-8">
+              {/* Customer Info */}
+              <div className="p-6 border border-border rounded-lg">
+                <h3 className="font-bold text-lg mb-4">Customer Information</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Email</label>
+                    <Input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Phone Number</label>
+                    <Input
+                      type="tel"
+                      placeholder="+91 9876543210"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Shipping Address */}
               <div className="p-6 border border-border rounded-lg">
                 <h3 className="font-bold text-lg mb-4">Shipping Address</h3>
-                <p className="text-muted-foreground mb-4">{shippingAddress}</p>
-                <Button variant="outline">Change Address</Button>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Address</label>
+                    <Input
+                      placeholder="Street address"
+                      value={shippingAddress}
+                      onChange={(e) => setShippingAddress(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">City</label>
+                    <Input placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+                  </div>
+                </div>
               </div>
 
               {/* Payment Method */}
@@ -89,46 +205,21 @@ export default function CheckoutPage() {
                   {/* UPI */}
                   <TabsContent value="upi" className="space-y-4">
                     <Smartphone className="w-12 h-12 text-primary mx-auto" />
-                    <div>
-                      <label className="block text-sm font-medium mb-2">UPI ID</label>
-                      <Input placeholder="yourname@upi" />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      You'll be redirected to your UPI app to complete the payment.
+                    <p className="text-sm text-muted-foreground text-center">
+                      You'll be redirected to complete payment via UPI
                     </p>
                   </TabsContent>
 
                   {/* Card */}
                   <TabsContent value="card" className="space-y-4">
                     <CreditCard className="w-12 h-12 text-primary mx-auto" />
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Card Number</label>
-                      <Input placeholder="1234 5678 9012 3456" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Expiry</label>
-                        <Input placeholder="MM/YY" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">CVV</label>
-                        <Input placeholder="123" />
-                      </div>
-                    </div>
+                    <p className="text-sm text-muted-foreground text-center">Secure card payment powered by Cashfree</p>
                   </TabsContent>
 
                   {/* Net Banking */}
                   <TabsContent value="netbanking" className="space-y-4">
                     <Landmark className="w-12 h-12 text-primary mx-auto" />
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Select Bank</label>
-                      <select className="w-full px-4 py-2 border border-border rounded-lg">
-                        <option>HDFC Bank</option>
-                        <option>ICICI Bank</option>
-                        <option>Axis Bank</option>
-                        <option>SBI</option>
-                      </select>
-                    </div>
+                    <p className="text-sm text-muted-foreground text-center">All major banks supported</p>
                   </TabsContent>
                 </Tabs>
               </div>
@@ -139,28 +230,41 @@ export default function CheckoutPage() {
               <div className="p-6 border border-border rounded-lg sticky top-20 space-y-4">
                 <h3 className="font-bold text-lg">Order Summary</h3>
 
+                <div className="max-h-48 overflow-y-auto space-y-2 border-b border-border pb-4">
+                  {cartItems.map((item) => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span>
+                        {item.product?.name} x {item.quantity}
+                      </span>
+                      <span>₹{((item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="space-y-2 border-b border-border pb-4">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
-                    <span>₹549</span>
+                    <span>₹{cartTotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-green-600">
-                    <span>Free Shipping</span>
-                    <span>₹0</span>
+                    <span>Shipping</span>
+                    <span>₹{shipping.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tax (5%)</span>
-                    <span>₹99</span>
+                    <span>₹{tax.toFixed(2)}</span>
                   </div>
                 </div>
 
                 <div className="flex justify-between items-center font-bold text-lg">
                   <span>Total</span>
-                  <span className="text-primary">₹{cartTotal}</span>
+                  <span className="text-primary">₹{totalAmount.toFixed(2)}</span>
                 </div>
 
-                <Button className="w-full" size="lg" onClick={handlePlaceOrder}>
-                  Place Order & Pay
+                {error && <p className="text-sm text-red-600">{error}</p>}
+
+                <Button className="w-full" size="lg" onClick={handlePlaceOrder} disabled={loading}>
+                  {loading ? "Processing..." : "Place Order & Pay"}
                 </Button>
 
                 <p className="text-xs text-muted-foreground text-center">

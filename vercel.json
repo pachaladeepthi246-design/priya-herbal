@@ -1,0 +1,19 @@
+{
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "@next_public_supabase_url",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@next_public_supabase_anon_key",
+    "NEXT_PUBLIC_CASHFREE_APP_ID": "@next_public_cashfree_app_id",
+    "CASHFREE_SECRET_KEY": "@cashfree_secret_key",
+    "NEXT_PUBLIC_CASHFREE_MODE": "@next_public_cashfree_mode"
+  },
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 60
+    }
+  }
+}

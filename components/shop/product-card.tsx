@@ -1,10 +1,14 @@
 "use client"
 
+import type React from "react"
+
 import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Star, ShoppingCart, Heart } from "lucide-react"
 import { useState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { useRouter } from "next/navigation"
 
 interface ProductCardProps {
   product: {
@@ -20,8 +24,45 @@ interface ProductCardProps {
 
 export default function ProductCard({ product }: ProductCardProps) {
   const [isFavorite, setIsFavorite] = useState(false)
+  const [isAdding, setIsAdding] = useState(false)
+  const router = useRouter()
 
   const discountPercent = Math.round((1 - product.price / product.originalPrice) * 100)
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    setIsAdding(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        router.push("/auth/login")
+        return
+      }
+
+      const { error } = await supabase.from("cart_items").insert({
+        user_id: user.id,
+        product_id: product.id.toString(),
+        quantity: 1,
+      })
+
+      if (error) throw error
+
+      // Show success feedback
+      alert("Added to cart!")
+      router.refresh()
+    } catch (err) {
+      console.error("Error adding to cart:", err)
+      alert("Failed to add to cart")
+    } finally {
+      setIsAdding(false)
+    }
+  }
 
   return (
     <Link href={`/product/${product.id}`}>
@@ -53,11 +94,10 @@ export default function ProductCard({ product }: ProductCardProps) {
             <Heart className={`w-5 h-5 transition ${isFavorite ? "fill-red-500 text-red-500" : "text-gray-400"}`} />
           </button>
 
-          {/* Hover: Add to Cart */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-end justify-center pb-4 opacity-0 group-hover:opacity-100">
-            <Button className="gap-2" onClick={(e) => e.preventDefault()}>
+            <Button className="gap-2" onClick={handleAddToCart} disabled={isAdding}>
               <ShoppingCart className="w-4 h-4" />
-              Add to Cart
+              {isAdding ? "Adding..." : "Add to Cart"}
             </Button>
           </div>
         </div>

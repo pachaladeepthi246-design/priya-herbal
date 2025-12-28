@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Navigation from "@/components/navigation"
 import Footer from "@/components/footer"
 import { Button } from "@/components/ui/button"
@@ -9,6 +10,7 @@ import ImageCarousel from "@/components/product/image-carousel"
 import VariantSelector from "@/components/product/variant-selector"
 import ReviewsSection from "@/components/product/reviews-section"
 import RelatedProducts from "@/components/product/related-products"
+import { createClient } from "@/lib/supabase/client"
 
 // Sample product data
 const productData = {
@@ -68,8 +70,41 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [selectedVariant, setSelectedVariant] = useState(productData.variants[0])
   const [isFavorite, setIsFavorite] = useState(false)
   const [activeTab, setActiveTab] = useState("description")
+  const [isAdding, setIsAdding] = useState(false)
+  const router = useRouter()
 
   const discountPercent = Math.round((1 - productData.price / productData.originalPrice) * 100)
+
+  const handleAddToCart = async () => {
+    setIsAdding(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        router.push("/auth/login")
+        return
+      }
+
+      const { error } = await supabase.from("cart_items").insert({
+        user_id: user.id,
+        product_id: productData.id.toString(),
+        quantity,
+      })
+
+      if (error) throw error
+
+      alert(`Added ${quantity} item(s) to cart!`)
+      router.refresh()
+    } catch (err) {
+      console.error("Error adding to cart:", err)
+      alert("Failed to add to cart")
+    } finally {
+      setIsAdding(false)
+    }
+  }
 
   return (
     <main className="bg-background">
@@ -166,9 +201,9 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
               {/* CTA Buttons */}
               <div className="flex gap-3 mb-8">
-                <Button className="flex-1 gap-2" size="lg">
+                <Button className="flex-1 gap-2" size="lg" onClick={handleAddToCart} disabled={isAdding}>
                   <ShoppingCart className="w-5 h-5" />
-                  Add to Cart
+                  {isAdding ? "Adding..." : "Add to Cart"}
                 </Button>
                 <Button variant="outline" size="lg" className="w-12 bg-transparent">
                   <Share2 className="w-5 h-5" />
