@@ -22,8 +22,8 @@ export default function AdminDashboard() {
     totalAffiliates: 0,
     pendingCommissions: 0,
   })
-  const [orders, setOrders] = useState([])
-  const [affiliates, setAffiliates] = useState([])
+  const [orders, setOrders] = useState<any[]>([])
+  const [affiliates, setAffiliates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const router = useRouter()
