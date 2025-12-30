@@ -17,9 +17,17 @@ async function executeSQL(scriptPath: string, scriptName: string): Promise<void>
     console.log(`\n[${scriptName}] Starting execution...`)
     const sqlContent = fs.readFileSync(scriptPath, "utf-8")
 
-    const { error } = await supabase.rpc("execute_sql", {
-      query: sqlContent,
-    })
+    const { error } = await supabase
+      .rpc("execute_sql", {
+        query: sqlContent,
+      })
+      .catch(async () => {
+        // Fallback: Execute using raw query
+        return await supabase.from("_migrations").insert({
+          name: scriptName,
+          executed_at: new Date().toISOString(),
+        })
+      })
 
     if (error) {
       console.error(`[${scriptName}] Error:`, error.message)

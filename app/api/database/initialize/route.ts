@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
 
 export async function POST(request: Request) {
   try {
@@ -7,7 +6,7 @@ export async function POST(request: Request) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: "Missing Supabase credentials" }, { status: 500 })
+      return Response.json({ error: "Missing Supabase credentials" }, { status: 500 })
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -65,7 +64,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
       message: "Database initialization setup complete",
       scripts_executed: results.length,
@@ -79,6 +78,6 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error("[ERROR]", err)
-    return NextResponse.json({ error: "Database initialization failed" }, { status: 500 })
+    return Response.json({ error: "Database initialization failed" }, { status: 500 })
   }
 }
