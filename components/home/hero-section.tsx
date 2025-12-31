@@ -1,21 +1,12 @@
-import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import HeroCarousel from "./hero-carousel"
 
 export default function HeroSection() {
   return (
     <section className="relative overflow-hidden">
       {/* Background Image with Overlay */}
-      <div className="absolute inset-0">
-        <Image
-          src="/hero-banner.jpg"
-          alt="Beautiful Indian woman with herbal products"
-          fill
-          className="object-cover"
-          priority
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/40 to-transparent" />
-      </div>
+      <HeroCarousel />
 
       {/* Content */}
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-32">
